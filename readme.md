@@ -1,5 +1,7 @@
 # [TodoMVC](http://todomvc.com) example
 
+[Live demo](https://nx-js.github.io/todomvc-example)
+
 **This is a fully [spec compliant](https://github.com/tastejs/todomvc/blob/master/app-spec.md#functionality) TodoMVC example - written in NX.**
 
 It is built without a bundler, using old school script
