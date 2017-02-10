@@ -54,13 +54,13 @@
 	  nx = {
 	    component: __webpack_require__(1),
 	    middlewares: __webpack_require__(12),
-	    components: __webpack_require__(42),
-	    utils: __webpack_require__(47),
+	    components: __webpack_require__(48),
+	    utils: __webpack_require__(55),
 	    supported: true
 	  }
 
-	  __webpack_require__(48)
-	  __webpack_require__(59)
+	  __webpack_require__(56)
+	  __webpack_require__(67)
 	}
 
 	if (typeof module !== 'undefined' && module.exports) {
@@ -206,22 +206,28 @@
 	  if (typeof middleware !== 'function') {
 	    throw new TypeError('first argument must be a function')
 	  }
+	  if (middleware.$type && middleware.$type.indexOf('component') === -1) {
+	    throw new Error(`${middleware.$name} can't be used as a component middleware`)
+	  }
 	  const config = this[secret.config]
 	  config.middlewares = config.middlewares || []
 	  config.middlewares.push(middleware)
 	  return this
 	}
 
-	function useOnContent (contentMiddleware) {
-	  if (typeof contentMiddleware !== 'function') {
+	function useOnContent (middleware) {
+	  if (typeof middleware !== 'function') {
 	    throw new TypeError('first argument must be a function')
+	  }
+	  if (middleware.$type && middleware.$type.indexOf('content') === -1) {
+	    throw new Error(`${middleware.$name} can't be used as a content middleware`)
 	  }
 	  const config = this[secret.config]
 	  if (config.isolate === true) {
 	    console.log('warning: content middlewares have no effect inside isolated components')
 	  }
 	  config.contentMiddlewares = config.contentMiddlewares || []
-	  config.contentMiddlewares.push(contentMiddleware)
+	  config.contentMiddlewares.push(middleware)
 	  return this
 	}
 
@@ -293,13 +299,12 @@
 	      addedNodes.add(nodes[nodeIndex])
 	    }
 	  }
+	  processAddedNodes()
 
 	  mutations = contentObserver.takeRecords()
 	  if (mutations.length) {
 	    onMutations(mutations, contentObserver)
 	  }
-
-	  processAddedNodes()
 	}
 
 	function processAddedNodes () {
@@ -630,18 +635,20 @@
 
 	module.exports = {
 	  attributes: __webpack_require__(13),
-	  events: __webpack_require__(20),
-	  interpolate: __webpack_require__(21),
-	  render: __webpack_require__(22),
-	  flow: __webpack_require__(23),
-	  bindable: __webpack_require__(25),
-	  bind: __webpack_require__(26),
-	  style: __webpack_require__(27),
-	  animate: __webpack_require__(28),
-	  route: __webpack_require__(29),
-	  params: __webpack_require__(30),
-	  ref: __webpack_require__(31),
-	  observe: __webpack_require__(32)
+	  props: __webpack_require__(20),
+	  events: __webpack_require__(21),
+	  interpolate: __webpack_require__(22),
+	  render: __webpack_require__(23),
+	  flow: __webpack_require__(24),
+	  bindable: __webpack_require__(26),
+	  bind: __webpack_require__(27),
+	  style: __webpack_require__(28),
+	  animate: __webpack_require__(29),
+	  route: __webpack_require__(30),
+	  params: __webpack_require__(31),
+	  ref: __webpack_require__(33),
+	  observe: __webpack_require__(37),
+	  meta: __webpack_require__(47)
 	}
 
 
@@ -654,7 +661,7 @@
 	const compiler = __webpack_require__(14)
 
 	let currAttributes
-	const handlers = new Map()
+	const configs = new Map()
 	const attributeCache = new Map()
 
 	function attributes (elem, state, next) {
@@ -662,34 +669,32 @@
 
 	  currAttributes = getAttributes(elem)
 	  elem.$attribute = $attribute
-	  elem.$hasAttribute = $hasAttribute
 	  next()
 
-	  currAttributes.forEach(processAttributeWithoutHandler, elem)
-	  handlers.forEach(processAttributeWithHandler, elem)
-	  handlers.clear()
+	  currAttributes.forEach(processAttributeWithoutConfig, elem)
+	  configs.forEach(processAttributeWithConfig, elem)
+	  configs.clear()
 	}
 	attributes.$name = 'attributes'
 	attributes.$require = ['observe']
 	module.exports = attributes
 
-	function $attribute (name, handler) {
+	function $attribute (name, config) {
 	  if (typeof name !== 'string') {
-	    throw new TypeError('first argument must be a string')
+	    throw new TypeError('First argument must be a string')
 	  }
-	  if (typeof handler !== 'function') {
-	    throw new TypeError('second argument must be a function')
+	  if (typeof config === 'function') {
+	    config = { handler: config }
+	  }
+	  if (typeof config !== 'object') {
+	    throw new TypeError('Second argument must be an object or a function')
+	  }
+	  if (!config.handler) {
+	    throw new Error(`${name} attribute must have a handler`)
 	  }
 	  if (currAttributes.has(name)) {
-	    handlers.set(name, handler)
+	    configs.set(name, config)
 	  }
-	}
-
-	function $hasAttribute (name) {
-	  if (typeof name !== 'string') {
-	    throw new TypeError('first argument must be a string')
-	  }
-	  return currAttributes.has(name)
 	}
 
 	function getAttributes (elem) {
@@ -711,18 +716,23 @@
 	  const cachedAttributes = new Map()
 	  while (i--) {
 	    const attribute = attributes[i]
-	    const type = attribute.name[0]
-	    const name = (type === '$' || type === '@') ? attribute.name.slice(1) : attribute.name
+	    let type = attribute.name[0]
+	    let name = attribute.name
+	    if (type === '$' || type === '@') {
+	      name = name.slice(1)
+	    } else {
+	      type = ''
+	    }
 	    cachedAttributes.set(name, {value: attribute.value, type})
 	  }
 	  return cachedAttributes
 	}
 
-	function processAttributeWithoutHandler (attr, name) {
-	  if (!handlers.has(name)) {
+	function processAttributeWithoutConfig (attr, name) {
+	  if (!configs.has(name)) {
 	    if (attr.type === '$') {
 	      const expression = compiler.compileExpression(attr.value || name)
-	      this.$queue(processExpression, expression, name, defaultHandler)
+	      processExpression.call(this, expression, name, defaultHandler)
 	    } else if (attr.type === '@') {
 	      const expression = compiler.compileExpression(attr.value || name)
 	      this.$observe(processExpression, expression, name, defaultHandler)
@@ -730,16 +740,24 @@
 	  }
 	}
 
-	function processAttributeWithHandler (handler, name) {
+	function processAttributeWithConfig (config, name) {
 	  const attr = currAttributes.get(name)
+
+	  if (config.type && config.type.indexOf(attr.type) === -1) {
+	    throw new Error(`${name} attribute is not allowed to be ${attr.type || 'normal'} type`)
+	  }
+	  if (config.init) {
+	    config.init.call(this)
+	  }
+
 	  if (attr.type === '@') {
 	    const expression = compiler.compileExpression(attr.value || name)
-	    this.$observe(processExpression, expression, name, handler)
+	    this.$observe(processExpression, expression, name, config.handler)
 	  } else if (attr.type === '$') {
 	    const expression = compiler.compileExpression(attr.value || name)
-	    this.$queue(processExpression, expression, name, handler)
+	    processExpression.call(this, expression, name, config.handler)
 	  } else {
-	    handler.call(this, attr.value, name)
+	    config.handler.call(this, attr.value, name)
 	  }
 	}
 
@@ -1070,6 +1088,29 @@
 
 /***/ },
 /* 20 */
+/***/ function(module, exports) {
+
+	'use strict'
+
+	module.exports = function propsFactory(...propNames) {
+	  function props (elem) {
+	    for (let propName of propNames) {
+	      elem.$attribute(propName, propHandler)
+	    }
+	  }
+	  props.$name = 'props'
+	  props.$require = ['attributes']
+	  props.$type = ['component']
+	  return props
+	}
+
+	function propHandler (value, name) {
+	  this.$state[name] = value
+	}
+
+
+/***/ },
+/* 21 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
@@ -1142,7 +1183,7 @@
 
 
 /***/ },
-/* 21 */
+/* 22 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
@@ -1187,7 +1228,7 @@
 	    if (token.observed) {
 	      this.$observe(interpolateToken, expression, token, tokens)
 	    } else {
-	      this.$queue(interpolateToken, expression, token, tokens)
+	      interpolateToken.call(this, expression, token, tokens)
 	    }
 	  }
 	}
@@ -1249,7 +1290,7 @@
 
 
 /***/ },
-/* 22 */
+/* 23 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -1267,19 +1308,24 @@
 	    if (elem.nodeType !== 1) {
 	      throw new Error('render only works with element nodes')
 	    }
-	    addContext(elem)
-
-	    const template = document.importNode(config.template, true)
 
 	    // fall back to non shadow mode (scoped style) for now, add polyfill later
 	    if (config.shadow && elem.attachShadow) {
 	      const shadowRoot = elem.attachShadow({mode: 'open'})
-	      shadowRoot.appendChild(template)
-	      const style = document.createElement('style')
-	      style.appendChild(document.createTextNode(config.style))
-	      shadowRoot.appendChild(style)
+	      if (config.template) {
+	        shadowRoot.appendChild(template)
+	      }
+	      if (config.style) {
+	        const style = document.createElement('style')
+	        style.appendChild(document.createTextNode(config.style))
+	        shadowRoot.appendChild(style)
+	      }
 	    } else {
-	      composeContentWithTemplate(elem, template)
+	      if (config.template) {
+	        const template = document.importNode(config.template, true)
+	        addContext(elem)
+	        composeContentWithTemplate(elem, template)
+	      }
 	      if (config.style) {
 	        addScopedStyle(elem, config.style)
 	        config.style = undefined
@@ -1368,9 +1414,11 @@
 	}
 
 	function cacheTemplate (templateHTML) {
-	  let template = document.createElement('template')
-	  template.innerHTML = templateHTML
-	  return template.content
+	  if (templateHTML) {
+	    const template = document.createElement('template')
+	    template.innerHTML = templateHTML
+	    return template.content  
+	  }
 	}
 
 	function validateAndCloneConfig (rawConfig) {
@@ -1382,8 +1430,8 @@
 
 	  if (typeof rawConfig.template === 'string') {
 	    resultConfig.template = rawConfig.template
-	  } else {
-	    throw new TypeError('template config must be a string')
+	  } else if (rawConfig.template !== undefined) {
+	    throw new TypeError('template config must be a string or undefined')
 	  }
 
 	  if (typeof rawConfig.style === 'string') {
@@ -1403,14 +1451,15 @@
 
 
 /***/ },
-/* 23 */
+/* 24 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
-	const dom = __webpack_require__(24)
+	const dom = __webpack_require__(25)
 
 	const secret = {
+	  inited: Symbol('flow initialized'),
 	  showing: Symbol('flow showing'),
 	  prevArray: Symbol('flow prevArray'),
 	  trackBy: Symbol('track by')
@@ -1419,24 +1468,31 @@
 	function flow (elem) {
 	  if (elem.nodeType !== 1) return
 
-	  const hasIf = elem.$hasAttribute('if')
-	  const hasRepeat = elem.$hasAttribute('repeat')
-
-	  if (hasIf && hasRepeat) {
-	    throw new Error('if and repeat attributes can not be used on the same element')
-	  }
-	  if (hasIf || hasRepeat) {
-	    dom.normalizeContent(elem)
-	    dom.extractContent(elem)
-	  }
-
-	  elem.$attribute('if', ifAttribute)
-	  elem.$attribute('track-by', trackByAttribute)
-	  elem.$attribute('repeat', repeatAttribute)
+	  elem.$attribute('if', {
+	    init: initFlow,
+	    handler: ifAttribute
+	  })
+	  elem.$attribute('track-by', {
+	    handler: trackByAttribute,
+	    type: ['', '$']
+	  })
+	  elem.$attribute('repeat', {
+	    init: initFlow,
+	    handler: repeatAttribute
+	  })
 	}
 	flow.$name = 'flow'
 	flow.$require = ['attributes']
 	module.exports = flow
+
+	function initFlow () {
+	  if (this[secret.inited]) {
+	    throw new Error('The if and repeat attributes can not be used on the same element')
+	  }
+	  dom.normalizeContent(this)
+	  dom.extractContent(this)
+	  this[secret.inited] = true
+	}
 
 	function ifAttribute (show) {
 	  if (show && !this[secret.showing]) {
@@ -1510,7 +1566,7 @@
 
 
 /***/ },
-/* 24 */
+/* 25 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -1528,7 +1584,9 @@
 	  moveContent,
 	  removeContent,
 	  clearContent,
-	  mutateContext
+	  mutateContext,
+	  findAncestor,
+	  findAncestorProp
 	}
 
 	function extractContent (elem) {
@@ -1654,9 +1712,29 @@
 	  }
 	}
 
+	function findAncestorProp (node, prop) {
+	  node = findAncestor(node, node => node[prop] !== undefined)
+	  return node ? node[prop] : undefined
+	}
+
+	function findAncestor (node, condition) {
+	  if (!node instanceof Node) {
+	    throw new TypeError('first argument must be a node')
+	  }
+	  if (typeof condition !== 'function') {
+	    throw new TypeError('second argument must be a function')
+	  }
+
+	  node = node.parentNode
+	  while (node && !condition(node)) {
+	    node = node.parentNode
+	  }
+	  return node
+	}
+
 
 /***/ },
-/* 25 */
+/* 26 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -1721,11 +1799,13 @@
 	  if (params.mode === 'two-way' && !elem[secret.signal]) {
 	    Promise.resolve().then(() => elem[secret.signal] = elem.$observe(syncElementWithState, elem))
 	  } else if (params.mode === 'one-time') {
-	    elem.$unobserve(elem[secret.signal])
-	    Promise.resolve().then(() => elem.$queue(syncElementWithState, elem))
-	    elem[secret.signal] = undefined
-	  } else if (params.mode === 'one-way') {
-	    elem.$unobserve(elem[secret.signal])
+	    Promise.resolve().then(() => syncElementWithState(elem))
+	    if (elem[secret.signal]) {
+	      elem[secret.signal].unobserve()
+	      elem[secret.signal] = undefined
+	    }
+	  } else if (params.mode === 'one-way' && elem[secret.signal]) {
+	    elem[secret.signal].unobserve()
 	    elem[secret.signal] = undefined
 	  }
 	  registerListeners(elem, params)
@@ -1817,7 +1897,7 @@
 
 
 /***/ },
-/* 26 */
+/* 27 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -1862,7 +1942,7 @@
 
 
 /***/ },
-/* 27 */
+/* 28 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -1901,7 +1981,7 @@
 
 
 /***/ },
-/* 28 */
+/* 29 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -1909,12 +1989,11 @@
 	const secret = {
 	  entering: Symbol('during entering animation'),
 	  leaving: Symbol('during leaving animation'),
-	  moveTransition: Symbol('watch move transition'),
 	  position: Symbol('animated element position'),
 	  parent: Symbol('parent node of leaving node'),
 	  listening: Symbol('listening for animationend')
 	}
-	const watchedNodes = new Set()
+	const watchedNodes = new Map()
 	let checkQueued = false
 
 	function onAnimationEnd (ev) {
@@ -1958,12 +2037,21 @@
 
 	function leaveAttribute (animation) {
 	  if (!this[secret.parent]) {
-	    watchedNodes.add(this)
-	    this.$cleanup(unwatch)
-	    this.$cleanup(onLeave, animation)
 	    this[secret.parent] = this.parentNode
-	    registerListener(this)
+	    this.$cleanup(onLeave, animation)
 	  }
+	  getPosition(this)
+	  registerListener(this)
+	}
+
+	function getPosition (node) {
+	  let position = watchedNodes.get(node)
+	  if (!position) {
+	    position = {}
+	    watchedNodes.set(node, position)
+	    node.$cleanup(unwatch)
+	  }
+	  return position
 	}
 
 	function registerListener (elem) {
@@ -1991,11 +2079,9 @@
 	}
 
 	function moveAttribute (transition) {
-	  if (!this[secret.moveTransition]) {
-	    watchedNodes.add(this)
-	    this.$cleanup(unwatch)
-	    this[secret.moveTransition] = true
-	  }
+	  const position = getPosition(this)
+	  position.move = true
+
 	  if (typeof transition === 'object' && transition) {
 	    transition = 'transform ' + transitionObjectToString(transition)
 	  } else if (typeof transition === 'string') {
@@ -2015,36 +2101,43 @@
 	  if (!checkQueued) {
 	    checkQueued = true
 	    requestAnimationFrame(checkWatchedNodes)
+	    requestAnimationFrame(moveWatchedNodes)
 	  }
 	}
 
 	function checkWatchedNodes () {
-	  for (let elem of watchedNodes) {
-	    const position = {
-	      left: elem.offsetLeft,
-	      top: elem.offsetTop
-	    }
-	    const prevPosition = elem[secret.position] || {}
-	    elem[secret.position] = position
-
-	    const xDiff = (prevPosition.left - position.left) || 0
-	    const yDiff = (prevPosition.top - position.top) || 0
-	    if (elem[secret.moveTransition] && (xDiff || yDiff)) {
-	      onMove(elem, xDiff, yDiff)
-	    }
-	  }
+	  watchedNodes.forEach(checkWatchedNode)
 	  checkQueued = false
 	}
 
-	function onMove (elem, xDiff, yDiff) {
-	  const style = elem.style
-	  const transition = style.transition
-	  style.transition = ''
-	  style.transform = `translate3d(${xDiff}px, ${yDiff}px, 0)`
-	  requestAnimationFrame(() => {
-	    style.transition = transition
-	    style.transform = ''
-	  })
+	function checkWatchedNode (position, node) {
+	  const prevTop = position.top
+	  const prevLeft = position.left
+
+	  position.top = node.offsetTop
+	  position.bottom = position.top - node.offsetHeight
+	  position.left = node.offsetLeft
+	  position.right = position.left - node.offsetWidth
+
+	  position.xDiff = (prevLeft - position.left) || 0
+	  position.yDiff = (prevTop - position.top) || 0
+	}
+
+	function moveWatchedNodes () {
+	  watchedNodes.forEach(moveWatchedNode)
+	}
+
+	function moveWatchedNode (position, node) {
+	  if (position.move) {
+	    const style = node.style
+	    const transition = style.transition
+	    style.transition = ''
+	    style.transform = `translate(${position.xDiff}px, ${position.yDiff}px)`
+	    requestAnimationFrame(() => {
+	      style.transition = transition
+	      style.transform = ''
+	    })
+	  }
 	}
 
 	function animationObjectToString (animation) {
@@ -2099,13 +2192,12 @@
 
 	function toAbsolutePosition (elem) {
 	  const style = elem.style
-	  const position = elem[secret.position]
-	  style.left = `${position.left}px`
-	  style.top = `${position.top}px`
+	  const position = watchedNodes.get(elem)
+	  style.top = style.top || `${position.top}px`
+	  style.bottom = style.bottom || `${position.bottom}px`
+	  style.left = style.left || `${position.left}px`
+	  style.right = style.right || `${position.right}px`
 	  style.margin = '0'
-	  style.width = '-moz-max-content'
-	  style.width = '-webkit-max-content'
-	  style.width = 'max-content'
 	  style.position = 'absolute'
 	}
 
@@ -2119,70 +2211,75 @@
 
 
 /***/ },
-/* 29 */
-/***/ function(module, exports) {
+/* 30 */
+/***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
-	const secret = {
+	const dom = __webpack_require__(25)
+
+	const symbols = {
 	  config: Symbol('router config')
 	}
 	const rootRouters = new Set()
-	let cloneId = 0
 
-	window.addEventListener('popstate', onPopState, true)
+	window.addEventListener('popstate', routeFromRoot)
 
-	function onPopState (ev) {
-	  for (let router of rootRouters) {
-	    routeRouterAndChildren(router, history.state.route)
-	  }
+	function routeFromRoot () {
+	  rootRouters.forEach(routeRouterAndChildren)
 	}
 
 	function router (router) {
 	  if (router.nodeType !== 1) {
-	    throw new Error('router only works with element nodes')
+	    throw new Error('Router only works with element nodes')
 	  }
 	  setupRouter(router)
 	  extractViews(router)
-	  routeRouterAndChildren(router, absoluteToRelativeRoute(router, history.state.route))
+	  routeRouterAndChildren(router)
 	}
 	router.$name = 'router'
 	module.exports = router
 
 	function setupRouter (router) {
-	  router[secret.config] = {
+	  router[symbols.config] = {
 	    children: new Set(),
 	    templates: new Map()
 	  }
-	  const parentRouter = findParentRouter(router)
+
+	  const parentRouter = dom.findAncestor(router, isRouter)
 	  if (parentRouter) {
 	    router.$routerLevel = parentRouter.$routerLevel + 1
-	    const siblingRouters = parentRouter[secret.config].children
+	    const siblingRouters = parentRouter[symbols.config].children
 	    siblingRouters.add(router)
 	    router.$cleanup(cleanupRouter, siblingRouters)
 	  } else {
-	    router.$routerLevel = 1
+	    router.$routerLevel = 0
 	    rootRouters.add(router)
 	    router.$cleanup(cleanupRouter, rootRouters)
 	  }
+	}
+
+	function isRouter (node) {
+	  return node[symbols.config] !== undefined
 	}
 
 	function cleanupRouter (siblingRouters) {
 	  siblingRouters.delete(this)
 	}
 
-	function absoluteToRelativeRoute (router, route) {
-	  return route.slice(router.$routerLevel - 1)
-	}
-
 	function extractViews (router) {
+	  const config = router[symbols.config]
 	  let child = router.firstChild
 	  while (child) {
-	    if (child.nodeType === 1 && child.hasAttribute('route')) {
+	    if (child.nodeType === 1) {
 	      const route = child.getAttribute('route')
-	      router[secret.config].templates.set(route, child)
+	      if (route) {
+	        config.templates.set(route, child)
+	      } else {
+	        throw new Error('router children must have a non empty route attribute')
+	      }
 	      if (child.hasAttribute('default-route')) {
-	        router[secret.config].defaultView = route
+	        config.defaultView = route
 	      }
 	    }
 	    child.remove()
@@ -2190,335 +2287,223 @@
 	  }
 	}
 
-	function findParentRouter (node) {
-	  node = node.parentNode
-	  while (node && node.$routerLevel === undefined) {
-	    node = node.parentNode
-	  }
-	  return node
-	}
-
-	function routeRouterAndChildren (router, route) {
-	  route = route.slice()
-	  const config = router[secret.config]
+	function routeRouterAndChildren (router) {
+	  const route = history.state.route
+	  const config = router[symbols.config]
 	  const templates = config.templates
 	  const defaultView = config.defaultView
-	  const prevView = router.$currentView
-	  let nextView = route.shift()
+	  const currentView = config.currentView
+	  let nextView = route[router.$routerLevel]
+	  let useDefault = false
 
 	  if (!templates.has(nextView) && templates.has(defaultView)) {
 	    nextView = defaultView
+	    useDefault = true
 	  }
-	  if (prevView !== nextView) {
-	    const eventConfig = {
-	      bubbles: true,
-	      cancelable: true,
-	      detail: {
-	        from: prevView,
-	        to: nextView
+
+	  let defaultPrevented = false
+	  if (currentView !== nextView) {
+	    const routeEvent = dispatchRouteEvent(router, currentView, nextView)
+	    defaultPrevented = routeEvent.defaultPrevented
+	    if (!defaultPrevented) {
+	      routeRouter(router, nextView)
+	      if (useDefault) {
+	        route[router.$routerLevel] = defaultView
+	        const state = Object.assign({}, history.state, { route })
+	        history.replaceState(state, '')
 	      }
 	    }
-	    const routeEvent = new CustomEvent('route', eventConfig)
-	    router.dispatchEvent(routeEvent)
-
-	    if (!routeEvent.defaultPrevented) {
-	      routeRouter(router, nextView)
-	      router.$currentView = nextView
-	    }
-	  } else {
-	    routeChildren(router, route)
+	  } else if (!defaultPrevented) {
+	    config.children.forEach(routeRouterAndChildren)
 	  }
 	}
 
+	function dispatchRouteEvent (router, fromView, toView) {
+	  const eventConfig = {
+	    bubbles: true,
+	    cancelable: true,
+	    detail: { from: fromView, to: toView }
+	  }
+	  const routeEvent = new CustomEvent('route', eventConfig)
+	  router.dispatchEvent(routeEvent)
+	  return routeEvent
+	}
+
 	function routeRouter (router, nextView) {
+	  const config = router[symbols.config]
+	  config.currentView = nextView
 	  router.innerHTML = ''
-	  const template = router[secret.config].templates.get(nextView)
+	  const template = config.templates.get(nextView)
 	  if (template) {
 	    router.appendChild(document.importNode(template, true))
 	  }
 	}
 
-	function routeChildren (router, route) {
-	  for (let childRouter of router[secret.config].children) {
-	    routeRouterAndChildren(childRouter, route)
-	  }
-	}
-
 
 /***/ },
-/* 30 */
-/***/ function(module, exports) {
+/* 31 */
+/***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
-	const secret = {
-	  config: Symbol('params sync config'),
-	  initSynced: Symbol('node initial synced')
+	const util = __webpack_require__(32)
+
+	const symbols = {
+	  config: Symbol('params sync config')
 	}
-	const watchedNodes = new Set()
+	const watchedParams = new Map()
+	const paramsEventConfig = {bubbles: true, cancelable: true}
+	let urlParams = {}
 
 	window.addEventListener('popstate', onPopState)
+	window.addEventListener('params', onParams, true)
 
 	function onPopState (ev) {
-	  for (let node of watchedNodes) {
-	    if (document.body.contains(node)) { // TODO -> refine this a bit! I need a better check
-	      syncStateWithParams(node)
-	      syncParamsWithState(node, false)
-	    }
-	  }
+	  document.dispatchEvent(new CustomEvent('params', paramsEventConfig))
 	}
 
-	module.exports = function paramsFactory (config) {
-	  function params (node, state, next) {
-	    node[secret.config] = config
-	    watchedNodes.add(node)
-	    node.$cleanup(unwatch)
+	function onParams () {
+	  urlParams = {}
+	  watchedParams.forEach(syncStateWithParams)
+	  syncUrlWithParams()
+	}
 
-	    syncStateWithParams(node)
+
+	module.exports = function paramsFactory (paramsConfig) {
+	  paramsConfig = paramsConfig || {}
+
+	  function params (node, state, next) {
+	    const config = node[symbols.config] = {
+	      tagName: node.getAttribute('is') || node.tagName,
+	      params: paramsConfig,
+	      node
+	    }
+	    watchedParams.set(config, state)
+	    node.$cleanup(unwatch, config)
+
+	    syncStateWithParams(state, config)
+	    syncUrlWithParams()
 	    next()
-	    syncParamsWithState(node, false)
-	    node.$observe(syncParamsWithState, node, true)
+	    config.signal = node.$observe(syncParamsWithState, state, config)
 	  }
 	  params.$name = 'params'
 	  params.$require = ['observe']
 	  return params
 	}
 
-	function unwatch () {
-	  watchedNodes.delete(this)
+	function unwatch (config) {
+	  watchedParams.delete(config)
 	}
 
-	function syncStateWithParams (node) {
-	  const params = history.state.params
-	  const state = node.$state
-	  const config = node[secret.config]
-
-	  for (let paramName in config) {
-	    const param = params[paramName] || config[paramName].default
-	    if (config[paramName].required && param === undefined) {
-	      throw new Error(`${paramName} is a required parameter`)
-	    }
-	    const type = config[paramName].type
-	    if (state[paramName] !== param) {
-	      if (param === undefined) {
-	        state[paramName] = undefined
-	      } else if (type === 'number') {
-	        state[paramName] = Number(param)
-	      } else if (type === 'boolean') {
-	        state[paramName] = Boolean(param)
-	      } else if (type === 'date') {
-	        state[paramName] = new Date(param)
-	      } else {
-	        state[paramName] = decodeURI(param)
-	      }
-	    }
+	function syncStateWithParams (state, config) {
+	  if (!document.documentElement.contains(config.node)) {
+	    return
 	  }
-	}
-
-	function syncParamsWithState (node, shouldUpdateHistory) {
 	  const params = history.state.params
-	  const state = node.$state
-	  const config = node[secret.config]
-	  let newParams = {}
+	  const paramsConfig = config.params
 	  let paramsChanged = false
-	  let historyChanged = false
 
-	  for (let paramName in config) {
-	    if (params[paramName] !== state[paramName]) {
-	      if (config[paramName].readOnly) {
-	        throw new Error(`${paramName} is readOnly`)
+	  for (let paramName in paramsConfig) {
+	    let param = params[paramName]
+	    const paramConfig = paramsConfig[paramName]
+
+	    if (param === undefined && paramConfig.durable) {
+	      param = localStorage.getItem(paramName)
+	    }
+	    param = param || paramConfig.default
+	    if (param === undefined && paramConfig.required) {
+	      throw new Error(`${paramName} is a required parameter in ${config.tagName}`)
+	    }
+	    const type = paramConfig.type
+	    if (state[paramName] !== param) {
+	      if (type === 'number') {
+	        param = Number(param)
+	      } else if (type === 'boolean') {
+	        param = Boolean(param)
+	      } else if (type === 'date') {
+	        param = new Date(param)
 	      }
-	      newParams[paramName] = state[paramName]
+	      state[paramName] = param
+	    }
+	    if (params[paramName] !== param) {
+	      params[paramName] = param
 	      paramsChanged = true
-	      if (config[paramName].history && shouldUpdateHistory) {
-	        historyChanged = true
-	      }
+	    }
+	    if (paramConfig.url) {
+	      urlParams[paramName] = param
 	    }
 	  }
 	  if (paramsChanged) {
-	    updateHistory(newParams, historyChanged)
+	    updateHistory(false)
+	  }
+	  if (config.signal) {
+	    config.signal.unqueue()
 	  }
 	}
 
-	function updateHistory (params, historyChanged) {
-	  params = Object.assign({}, history.state.params, params)
+	function syncParamsWithState (state, config) {
+	  const params = history.state.params
+	  const paramsConfig = config.params
+	  let historyChanged = false
+	  let paramsChanged = false
 
-	  const url = location.pathname + paramsToQuery(params)
-	  if (historyChanged) {
-	    history.pushState({route: history.state.route, params}, '', url)
-	  } else {
-	    history.replaceState({route: history.state.route, params}, '', url)
-	  }
-	}
+	  for (let paramName in paramsConfig) {
+	    const paramConfig = paramsConfig[paramName]
+	    const param = state[paramName]
 
-	function paramsToQuery (params) {
-	  let query = ''
-	  for (let paramName in params) {
-	    const param = params[paramName]
-	    if (param !== undefined) {
-	      query += `${paramName}=${param}&`
+	    if (params[paramName] !== param) {
+	      if (paramConfig.readOnly) {
+	        throw new Error(`${paramName} is readOnly, but it was set from ${params[paramName]} to ${param} in ${config.tagName}`)
+	      }
+	      params[paramName] = param
+	      paramsChanged = true
+	      historyChanged = historyChanged || paramConfig.history
+	    }
+	    if (paramConfig.durable) {
+	      localStorage.setItem(paramName, param)
 	    }
 	  }
-	  if (query !== '') {
-	    query = '?' + query.slice(0, -1)
+	  if (paramsChanged) {
+	    updateHistory(historyChanged)
 	  }
-	  return query
+	}
+
+	function syncUrlWithParams () {
+	  const url = location.pathname + util.toQuery(urlParams)
+	  history.replaceState(history.state, '', url)
+	}
+
+	function updateHistory (historyChanged) {
+	  util.updateState(history.state, '', location.pathname, historyChanged)
+	  document.dispatchEvent(new CustomEvent('params', paramsEventConfig))
 	}
 
 
 /***/ },
-/* 31 */
+/* 32 */
 /***/ function(module, exports) {
 
 	'use strict'
 
-	const secret = {
-	  config: Symbol('ref config')
-	}
+	let shouldThrottle
+	throttle()
 
-	updateHistory(pathToRoute(location.pathname), queryToParams(location.search), {history: false})
-
-	function ref (elem) {
-	  if (elem.nodeType !== 1) return
-
-	  elem.$route = $route
-	  if (elem.tagName === 'A') {
-	    elem.$attribute('iref', irefAttribute)
-	    elem.$attribute('iref-params', irefParamsAttribute)
-	    elem.$attribute('iref-options', irefOptionsAttribute)
-	  }
-	}
-	ref.$name = 'ref'
-	ref.$require = ['attributes']
-	module.exports = ref
-
-	function irefAttribute (path) {
-	  const config = this[secret.config] = this[secret.config] || {}
-	  config.path = path
-
-	  let route = pathToRoute(path)
-	  if (route.some(filterRelativeTokens)) {
-	    route = relativeToAbsoluteRoute(this, route)
-	  }
-	  this.href = routeToPath(route) + (this.search || '')
-	  this.addEventListener('click', onClick, true)
-	}
-
-	function irefParamsAttribute (params) {
-	  const config = this[secret.config] = this[secret.config] || {}
-	  config.params = params
-	  this.href = (this.pathname || '') + paramsToQuery(params)
-	  this.addEventListener('click', onClick, true)
-	}
-
-	function onClick (ev) {
-	  const config = this[secret.config]
-	  if (config) {
-	    this.$route(config.path, config.params, config.options)
-	    ev.preventDefault()
-	  }
-	}
-
-	function irefOptionsAttribute (options) {
-	  const config = this[secret.config] = this[secret.config] || {}
-	  config.options = options
-	}
-
-	function $route (path, params, options) {
-	  params = params || {}
-	  options = options || {}
-	  let route = pathToRoute(path)
-	  if (route.some(filterRelativeTokens)) {
-	    route = relativeToAbsoluteRoute(this, route)
-	  }
-	  updateHistory(route, params, options)
-	  window.scroll(0, 0)
-	}
-
-	function relativeToAbsoluteRoute (node, relativeRoute) {
-	  let router = findParentRouter(node)
-	  let routerLevel = router ? router.$routerLevel : 0
-
-	  for (let token of relativeRoute) {
-	    if (token === '..') routerLevel--
-	  }
-	  if (routerLevel < 0) {
-	    throw new Error('invalid relative route')
-	  }
-
-	  const currentRoute = []
-	  while (router) {
-	    currentRoute.unshift(router.$currentView)
-	    router = findParentRouter(router)
-	  }
-	  const route = relativeRoute.filter(filterAbsoluteTokens)
-	  return currentRoute.slice(0, routerLevel).concat(route)
-	}
-
-	function filterAbsoluteTokens (token) {
-	  return (token !== '..' && token !== '.')
-	}
-
-	function filterRelativeTokens (token) {
-	  return (token === '..' || token === '.')
-	}
-
-	function filterEmptyTokens (token) {
-	  return (token !== '')
-	}
-
-	function findParentRouter (node) {
-	  node = node.parentNode
-	  while (node && node.$routerLevel === undefined) {
-	    node = node.parentNode
-	  }
-	  return node
-	}
-
-	function updateHistory (route, params, options) {
-	  if (options.inherit) {
-	    params = Object.assign({}, history.state.params, params)
-	  }
-
-	  const url = routeToPath(route) + paramsToQuery(params)
-	  if (options.history === false) {
-	    history.replaceState({route, params}, '', url)
-	  } else {
-	    history.pushState({route, params}, '', url)
-	  }
-
-	  const eventConfig = {bubbles: true, cancelable: false }
-	  document.dispatchEvent(new Event('popstate', eventConfig))
-	}
-
-	function routeToPath (route) {
-	  return route ? '/' + route.join('/') : ''
-	}
-
-	function pathToRoute (path) {
-	  return path.split('/').filter(filterEmptyTokens)
-	}
-
-	function paramsToQuery (params) {
-	  params = params || {}
-	  let query = ''
-	  for (let paramName in params) {
-	    const param = params[paramName]
+	function toQuery (params) {
+	  const query = []
+	  for (let key in params) {
+	    const param = params[key]
 	    if (param !== undefined) {
-	      query += `${paramName}=${param}&`
+	      query.push(`${key}=${param}`)
 	    }
 	  }
-	  if (query !== '') {
-	    query = '?' + query.slice(0, -1)
-	  }
-	  return query
+	  return query.length ? ('?' + query.join('&')) : ''
 	}
 
-	function queryToParams (query) {
+	function toParams (query) {
 	  if (query[0] === '?') {
 	    query = query.slice(1)
 	  }
-	  query = query.split('&')
+	  query = decodeURI(query).split('&')
 
 	  const params = {}
 	  for (let keyValue of query) {
@@ -2530,36 +2515,77 @@
 	  return params
 	}
 
-
-/***/ },
-/* 32 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict'
-
-	const observer = __webpack_require__(33)
-
-	function observe (node, state) {
-	  node.$contextState = observer.observable(node.$contextState)
-	  node.$state = observer.observable(node.$state)
-
-	  node.$observe = $observe
-	  node.$queue = $queue
-	  node.$unobserve = observer.unobserve
-	}
-	observe.$name = 'observe'
-	module.exports = observe
-
-	function $observe (fn, ...args) {
-	  args.unshift(fn, this)
-	  const signal = observer.observe.apply(null, args)
-	  this.$cleanup(observer.unobserve, signal)
-	  return signal
+	function toPath (route) {
+	  return '/' + normalizeRoute(route).join('/')
 	}
 
-	function $queue (fn, ...args) {
-	  args.unshift(fn, this)
-	  return observer.queue.apply(null, args)
+	function toRoute (path) {
+	  return normalizeRoute(path.split('/'))
+	}
+
+	function toAbsolute (route, level) {
+	  if (route[0] === '.' || route[0] === '..') {
+	    if (route[0] === '.') {
+	      route.shift()
+	    }
+	    let depth = 0
+	    while (route[0] === '..') {
+	      route.shift()
+	      depth++
+	    }
+	    return history.state.route.slice(0, level - depth).concat(route)
+	  }
+	  return route
+	}
+
+	function normalizeRoute (route) {
+	  const result = []
+	  let parentOver, selfOver = false
+
+	  for (let token of route) {
+	    if (token === '..') {
+	      if (parentOver) {
+	        result.pop()
+	      } else {
+	        result.push(token)
+	      }
+	    } else if (token === '.' && !selfOver) {
+	      result.push(token)
+	    } else if (token !== '') {
+	      result.push(token)
+	    }
+	    selfOver = true
+	  }
+	  return result
+	}
+
+	function updateState (state, title, url, updateHistory) {
+	  if (updateHistory && !shouldThrottle) {
+	    history.pushState(state, title, url)
+	    throttle()
+	  } else {
+	    history.replaceState(state, title, url)
+	  }
+	}
+
+	function throttle () {
+	  if (!shouldThrottle) {
+	    shouldThrottle = true
+	    requestAnimationFrame(unthrottle)
+	  }
+	}
+
+	function unthrottle () {
+	  shouldThrottle = false
+	}
+
+	module.exports = {
+	  toQuery,
+	  toParams,
+	  toPath,
+	  toRoute,
+	  toAbsolute,
+	  updateState
 	}
 
 
@@ -2578,9 +2604,248 @@
 
 	'use strict'
 
-	const nextTick = __webpack_require__(35)
-	const builtIns = __webpack_require__(36)
-	const wellKnowSymbols = __webpack_require__(41)
+	const dom = __webpack_require__(25)
+	const util = __webpack_require__(32)
+	const symbols = __webpack_require__(35)
+	const activity = __webpack_require__(36)
+
+	const popstateConfig = {bubbles: true, cancelable: true}
+
+	// init history
+	updateHistory({
+	  route: util.toRoute(location.pathname),
+	  params: util.toParams(location.search),
+	  options: {history: false}
+	})
+
+	function ref (elem) {
+	  if (elem.nodeType !== 1) return
+
+	  elem.$route = $route
+	  if (elem.tagName === 'A') {
+	    elem.$attribute('iref-params', {
+	      init: initAnchor,
+	      handler: irefParamsAttribute
+	    })
+	    elem.$attribute('iref-options', {
+	      init: initAnchor,
+	      handler: irefOptionsAttribute
+	    })
+	    elem.$attribute('iref', {
+	      init: initAnchor,
+	      handler: irefAttribute,
+	      type: ['']
+	    })
+	  }
+	}
+	ref.$name = 'ref'
+	ref.$require = ['attributes']
+	module.exports = ref
+
+	function initAnchor () {
+	  if (!this[symbols.config]) {
+	    const parentLevel = dom.findAncestorProp(this, '$routerLevel')
+	    this[symbols.config] = {
+	      level: (parentLevel === undefined) ? 0 : parentLevel + 1
+	    }
+	    activity.register(this)
+	    this.$cleanup(activity.unregister, this)
+	  }
+	}
+
+	function irefAttribute (path) {
+	  const config = this[symbols.config]
+	  config.route = util.toAbsolute(util.toRoute(path), config.level)
+
+	  const route = history.state.route
+	  for (let i = 0; i <= config.level; i++) {
+	    activity.updateRouteMatch(this, route[i], i)
+	  }
+	  this.href = util.toPath(config.route) + (this.search || '')
+	  this.addEventListener('click', onAnchorClick, true)
+	}
+
+	function irefParamsAttribute (params) {
+	  this[symbols.config].params = params
+	  activity.updateParamsMatch(this)
+	  this.href = (this.pathname || '') + util.toQuery(params)
+	  this.addEventListener('click', onAnchorClick, true)
+	}
+
+	function irefOptionsAttribute (options) {
+	  this[symbols.config].options = options
+	}
+
+	function onAnchorClick (ev) {
+	  setTimeout(updateHistory, 0, this[symbols.config])
+	  ev.preventDefault()
+	}
+
+	function $route (config) {
+	  const parentLevel = dom.findAncestorProp(this, '$routerLevel')
+	  const level = (parentLevel === undefined) ? 0 : parentLevel + 1
+	  config.route = util.toAbsolute(util.toRoute(config.to), level)
+	  setTimeout(updateHistory, 0, config)
+	}
+
+	function updateHistory (config) {
+	  const route = config.route || history.state.route
+	  let params = config.params || {}
+	  const options = config.options || {}
+
+	  if (options.inherit) {
+	    params = Object.assign(history.state.params, params)
+	  }
+	  const url = util.toPath(route)
+	  util.updateState({route, params}, '', url, (options.history !== false))
+	  document.dispatchEvent(new Event('popstate', popstateConfig))
+	  window.scroll(0, 0)
+	}
+
+
+/***/ },
+/* 35 */
+/***/ function(module, exports) {
+
+	'use strict'
+
+	module.exports = {
+	  config: Symbol('ref config')
+	}
+
+
+/***/ },
+/* 36 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict'
+
+	const symbols = __webpack_require__(35)
+	const anchors = new Set()
+
+	window.addEventListener('route', onRoute)
+	window.addEventListener('params', onParams)
+
+	function onRoute (ev) {
+	  if (!ev.defaultPrevented) {
+	    for (let anchor of anchors) {
+	      updateRouteMatch(anchor, ev.detail.to, ev.target.$routerLevel)
+	    }
+	  }
+	}
+
+	function onParams () {
+	  anchors.forEach(updateParamsMatch)
+	}
+
+	function register (anchor) {
+	  const config = anchor[symbols.config]
+	  config.routeMismatches = new Set()
+	  config.paramsMatch = true
+	  anchors.add(anchor)
+	}
+
+	function unregister (anchor) {
+	  anchors.delete(anchor)
+	}
+
+	function updateRouteMatch (anchor, view, level) {
+	  const config = anchor[symbols.config]
+	  const route = config.route
+
+	  if (route) {
+	    if (route[level] === view) {
+	      config.routeMismatches.delete(level)
+	    } else if (route[level]) {
+	      config.routeMismatches.add(level)
+	    }
+	  }
+	  updateActivity(anchor)
+	}
+
+	function updateParamsMatch (anchor) {
+	  const config = anchor[symbols.config]
+	  const anchorParams = config.params
+
+	  if (anchorParams) {
+	    const params = history.state.params
+	    for (let key in anchorParams) {
+	      if (anchorParams[key] !== params[key]) {
+	        config.paramsMatch = false
+	        return updateActivity(anchor)
+	      }
+	    }
+	  }
+	  config.paramsMatch = true
+	  updateActivity(anchor)
+	}
+
+	function updateActivity (anchor) {
+	  const config = anchor[symbols.config]
+	  if (config.routeMismatches.size || !config.paramsMatch) {
+	    anchor.classList.remove('active')
+	    config.isActive = false
+	  } else {
+	    anchor.classList.add('active')
+	    config.isActive = true
+	  }
+	}
+
+	module.exports = {
+	  register,
+	  unregister,
+	  updateRouteMatch,
+	  updateParamsMatch
+	}
+
+
+/***/ },
+/* 37 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict'
+
+	const observer = __webpack_require__(38)
+
+	function observe (node, state) {
+	  node.$contextState = observer.observable(node.$contextState)
+	  node.$state = observer.observable(node.$state)
+
+	  node.$observe = $observe
+	}
+	observe.$name = 'observe'
+	module.exports = observe
+
+	function $observe (fn, ...args) {
+	  args.unshift(fn, this)
+	  const signal = observer.observe.apply(null, args)
+	  this.$cleanup(unobserve, signal)
+	  return signal
+	}
+
+	function unobserve (signal) {
+	  signal.unobserve()
+	}
+
+
+/***/ },
+/* 38 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict'
+
+	module.exports = __webpack_require__(39)
+
+
+/***/ },
+/* 39 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict'
+
+	const nextTick = __webpack_require__(40)
+	const builtIns = __webpack_require__(41)
+	const wellKnowSymbols = __webpack_require__(46)
 
 	const proxies = new WeakMap()
 	const observers = new WeakMap()
@@ -2592,39 +2857,34 @@
 
 	module.exports = {
 	  observe,
-	  unobserve,
-	  queue,
 	  observable,
 	  isObservable
 	}
 
 	function observe (fn, context, ...args) {
 	  if (typeof fn !== 'function') {
-	    throw new TypeError('first argument must be a function')
+	    throw new TypeError('First argument must be a function')
 	  }
 	  args = args.length ? args : undefined
-	  const observer = {fn, context, args, observedKeys: []}
-	  queueObserver(observer)
+	  const observer = {fn, context, args, observedKeys: [], exec, unobserve, unqueue}
+	  runObserver(observer)
 	  return observer
 	}
 
-	function unobserve (observer) {
-	  if (typeof observer === 'object') {
-	    if (observer.observedKeys) {
-	      observer.observedKeys.forEach(unobserveKey, observer)
-	    }
-	    observer.fn = observer.context = observer.args = observer.observedKeys = undefined
+	function exec () {
+	  runObserver(this)
+	}
+
+	function unobserve () {
+	  if (this.fn) {
+	    this.observedKeys.forEach(unobserveKey, this)
+	    this.fn = this.context = this.args = this.observedKeys = undefined
+	    queuedObservers.delete(this)
 	  }
 	}
 
-	function queue (fn, context, ...args) {
-	  if (typeof fn !== 'function') {
-	    throw new TypeError('first argument must be a function')
-	  }
-	  args = args.length ? args : undefined
-	  const observer = {fn, context, args, once: true}
-	  queueObserver(observer)
-	  return observer
+	function unqueue () {
+	  queuedObservers.delete(this)
 	}
 
 	function observable (obj) {
@@ -2699,6 +2959,7 @@
 	  if (key === 'length' || value !== Reflect.get(target, key, receiver)) {
 	    queueObservers(target, key)
 	    queueObservers(target, enumerate)
+
 	  }
 	  if (typeof value === 'object' && value) {
 	    value = value.$raw || value
@@ -2716,8 +2977,10 @@
 
 	function queueObservers (target, key) {
 	  const observersForKey = observers.get(target).get(key)
-	  if (observersForKey) {
+	  if (observersForKey && observersForKey.constructor === Set) {
 	    observersForKey.forEach(queueObserver)
+	  } else if (observersForKey) {
+	    queueObserver(observersForKey)
 	  }
 	}
 
@@ -2736,18 +2999,11 @@
 	}
 
 	function runObserver (observer) {
-	  if (observer.fn) {
-	    if (observer.once) {
-	      observer.fn.apply(observer.context, observer.args)
-	      unobserve(observer)
-	    } else {
-	      try {
-	        currentObserver = observer
-	        observer.fn.apply(observer.context, observer.args)
-	      } finally {
-	        currentObserver = undefined
-	      }
-	    }
+	  try {
+	    currentObserver = observer
+	    observer.fn.apply(observer.context, observer.args)
+	  } finally {
+	    currentObserver = undefined
 	  }
 	}
 
@@ -2757,7 +3013,7 @@
 
 
 /***/ },
-/* 35 */
+/* 40 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -2795,15 +3051,15 @@
 
 
 /***/ },
-/* 36 */
+/* 41 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
-	const MapShim = __webpack_require__(37)
-	const SetShim = __webpack_require__(38)
-	const WeakMapShim = __webpack_require__(39)
-	const WeakSetShim = __webpack_require__(40)
+	const MapShim = __webpack_require__(42)
+	const SetShim = __webpack_require__(43)
+	const WeakMapShim = __webpack_require__(44)
+	const WeakSetShim = __webpack_require__(45)
 
 	module.exports = new Map([
 	  [Map, MapShim],
@@ -2816,7 +3072,7 @@
 
 
 /***/ },
-/* 37 */
+/* 42 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -2879,7 +3135,7 @@
 
 
 /***/ },
-/* 38 */
+/* 43 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -2942,7 +3198,7 @@
 
 
 /***/ },
-/* 39 */
+/* 44 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -2987,7 +3243,7 @@
 
 
 /***/ },
-/* 40 */
+/* 45 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3032,7 +3288,7 @@
 
 
 /***/ },
-/* 41 */
+/* 46 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3050,32 +3306,94 @@
 
 
 /***/ },
-/* 42 */
+/* 47 */
+/***/ function(module, exports) {
+
+	'use strict'
+
+	const secret = {
+	  config: Symbol('meta config')
+	}
+
+	module.exports = function metaFactory (config) {
+	  function meta (elem) {
+	    config = elem[secret.config] = Object.assign({}, findParentConfig(elem), config)
+
+	    if (config.title) {
+	      document.title = config.title
+	    }
+	    if (config.description) {
+	      setMetaTag('description', config.description)
+	    }
+	    if (config.author) {
+	      setMetaTag('author', config.author)
+	    }
+	    if (config.keywords) {
+	      setMetaTag('keywords', config.keywords)
+	    }
+	    if (config.robots) {
+	      setMetaTag('robots', config.robots)
+	    }
+	    if (config.analytics) {
+	      if (typeof ga !== 'function') {
+	        throw new Error('There is no global ga (Google analytics) function.')
+	      }
+	      ga('set', 'page', config.analytics)
+	      ga('send', 'pageview')
+	    }
+	  }
+	  meta.$name = 'meta'
+	  return meta
+	}
+
+	function findParentConfig (elem) {
+	  elem = elem.parentNode
+	  while (elem && elem[secret.config] === undefined) {
+	    elem = elem.parentNode
+	  }
+	  return elem ? elem[secret.config] : undefined
+	}
+
+	function setMetaTag (name, content) {
+	  let tag = document.querySelector(`meta[name="${name}"]`)
+	  if (!tag) {
+	    tag = document.createElement('meta')
+	    tag.setAttribute('name', name)
+	    document.head.appendChild(tag)
+	  }
+	  tag.setAttribute('content', content)
+	}
+
+
+/***/ },
+/* 48 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
 	module.exports = {
-	  app: __webpack_require__(43),
-	  page: __webpack_require__(44),
-	  rendered: __webpack_require__(45),
-	  router: __webpack_require__(46)
+	  app: __webpack_require__(49),
+	  page: __webpack_require__(50),
+	  rendered: __webpack_require__(51),
+	  router: __webpack_require__(52),
+	  display: __webpack_require__(53),
+	  control: __webpack_require__(54)
 	}
 
 
 /***/ },
-/* 43 */
+/* 49 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
-	const component = __webpack_require__(1)
+	const page = __webpack_require__(50)
 	const middlewares = __webpack_require__(12)
 
 	module.exports = function app (config) {
 	  config = Object.assign({root: true, isolate: 'middlewares'}, config)
 
-	  return component(config)
+	  return page(config)
 	    .useOnContent(middlewares.observe)
 	    .useOnContent(middlewares.interpolate)
 	    .useOnContent(middlewares.attributes)
@@ -3090,25 +3408,25 @@
 
 
 /***/ },
-/* 44 */
+/* 50 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
-	const component = __webpack_require__(1)
+	const rendered = __webpack_require__(51)
 	const middlewares = __webpack_require__(12)
 
 	module.exports = function page (config) {
 	  config = config || {}
 
-	  return component(config)
-	    .use(middlewares.render(config))
-	    .use(middlewares.params(config.params))
+	  return rendered(config)
+	    .use(middlewares.meta(config))
+	    .use(middlewares.params(config.params || {}))
 	}
 
 
 /***/ },
-/* 45 */
+/* 51 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
@@ -3125,7 +3443,7 @@
 
 
 /***/ },
-/* 46 */
+/* 52 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
@@ -3142,26 +3460,61 @@
 
 
 /***/ },
-/* 47 */
+/* 53 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict'
+
+	const rendered = __webpack_require__(51)
+	const middlewares = __webpack_require__(12)
+
+	module.exports = function display (config) {
+	  config = config || {}
+
+	  return rendered(config)
+	    .use(middlewares.props.apply(null, config.props || []))
+	}
+
+
+/***/ },
+/* 54 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict'
+
+	const display = __webpack_require__(53)
+	const middlewares = __webpack_require__(12)
+
+	module.exports = function control (config) {
+	  config = config || {}
+
+	  return display(config)
+	    .use(middlewares.params(config.params || {}))
+	}
+
+
+/***/ },
+/* 55 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
 	module.exports = {
 	  compiler: __webpack_require__(14),
-	  observer: __webpack_require__(33),
-	  dom: __webpack_require__(24)
+	  observer: __webpack_require__(38),
+	  dom: __webpack_require__(25),
+	  router: __webpack_require__(32)
 	}
 
 
 /***/ },
-/* 48 */
+/* 56 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
 	const compiler = __webpack_require__(14)
-	const filters = __webpack_require__(49)
+	const filters = __webpack_require__(57)
 
 	for (let name in filters) {
 	  compiler.filter(name, filters[name])
@@ -3169,26 +3522,26 @@
 
 
 /***/ },
-/* 49 */
+/* 57 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
 	module.exports = {
-	  capitalize: __webpack_require__(50),
-	  uppercase: __webpack_require__(51),
-	  lowercase: __webpack_require__(52),
-	  unit: __webpack_require__(53),
-	  json: __webpack_require__(54),
-	  slice: __webpack_require__(55),
-	  date: __webpack_require__(56),
-	  time: __webpack_require__(57),
-	  datetime: __webpack_require__(58)
+	  capitalize: __webpack_require__(58),
+	  uppercase: __webpack_require__(59),
+	  lowercase: __webpack_require__(60),
+	  unit: __webpack_require__(61),
+	  json: __webpack_require__(62),
+	  slice: __webpack_require__(63),
+	  date: __webpack_require__(64),
+	  time: __webpack_require__(65),
+	  datetime: __webpack_require__(66)
 	}
 
 
 /***/ },
-/* 50 */
+/* 58 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3203,7 +3556,7 @@
 
 
 /***/ },
-/* 51 */
+/* 59 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3217,7 +3570,7 @@
 
 
 /***/ },
-/* 52 */
+/* 60 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3231,7 +3584,7 @@
 
 
 /***/ },
-/* 53 */
+/* 61 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3249,7 +3602,7 @@
 
 
 /***/ },
-/* 54 */
+/* 62 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3263,7 +3616,7 @@
 
 
 /***/ },
-/* 55 */
+/* 63 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3277,7 +3630,7 @@
 
 
 /***/ },
-/* 56 */
+/* 64 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3291,7 +3644,7 @@
 
 
 /***/ },
-/* 57 */
+/* 65 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3305,7 +3658,7 @@
 
 
 /***/ },
-/* 58 */
+/* 66 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3319,13 +3672,13 @@
 
 
 /***/ },
-/* 59 */
+/* 67 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
 	const compiler = __webpack_require__(14)
-	const limiters = __webpack_require__(60)
+	const limiters = __webpack_require__(68)
 
 	for (let name in limiters) {
 	  compiler.limiter(name, limiters[name])
@@ -3333,22 +3686,22 @@
 
 
 /***/ },
-/* 60 */
+/* 68 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
 	module.exports = {
-	  if: __webpack_require__(61),
-	  delay: __webpack_require__(62),
-	  debounce: __webpack_require__(63),
-	  throttle: __webpack_require__(64),
-	  key: __webpack_require__(65)
+	  if: __webpack_require__(69),
+	  delay: __webpack_require__(70),
+	  debounce: __webpack_require__(71),
+	  throttle: __webpack_require__(72),
+	  key: __webpack_require__(73)
 	}
 
 
 /***/ },
-/* 61 */
+/* 69 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3361,7 +3714,7 @@
 
 
 /***/ },
-/* 62 */
+/* 70 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3375,7 +3728,7 @@
 
 
 /***/ },
-/* 63 */
+/* 71 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3392,7 +3745,7 @@
 
 
 /***/ },
-/* 64 */
+/* 72 */
 /***/ function(module, exports) {
 
 	'use strict'
@@ -3414,12 +3767,12 @@
 
 
 /***/ },
-/* 65 */
+/* 73 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict'
 
-	const stringToCode = __webpack_require__(66)
+	const stringToCode = __webpack_require__(74)
 
 	module.exports = function keyLimiter (next, context, ...keys) {
 	  if (!(context.$event instanceof KeyboardEvent)) {
@@ -3435,7 +3788,7 @@
 
 
 /***/ },
-/* 66 */
+/* 74 */
 /***/ function(module, exports) {
 
 	// Source: http://jsfiddle.net/vWx8V/

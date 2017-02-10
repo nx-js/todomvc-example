@@ -1,16 +1,14 @@
 'use strict'
 
 // define an app component with the above and an URL-state synchronizing middleware
-nx.components.app()
-	.use(nx.middlewares.params({
-		status: {history: true }
-	}))
-	.use(setup)
-	.register('todo-app')
+nx.components.app({
+	params: {
+		status: {history: true, url: true, default: 'all'}
+	}
+}).use(setup).register('todo-app')
 
 // this is a middleware function, which is used to add functionality to components
 function setup(elem, state) {
-	state.status = state.status || 'all'
 	state.todos = {
 		all: JSON.parse(localStorage.getItem('todos-nx')) || [],
 		get completed() {
